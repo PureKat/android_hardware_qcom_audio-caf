@@ -35,7 +35,9 @@ class AudioPolicyManager: public AudioPolicyManagerBase
 
 public:
                 AudioPolicyManager(AudioPolicyClientInterface *clientInterface)
-                : AudioPolicyManagerBase(clientInterface) {}
+                : AudioPolicyManagerBase(clientInterface) {
+                    mHdmiAudioDisabled = false;
+                    mHdmiAudioEvent = false; }
 
         virtual ~AudioPolicyManager() {}
 
@@ -56,9 +58,16 @@ public:
                                                     AudioSystem::OUTPUT_FLAG_INDIRECT,
                                             const audio_offload_info_t *offloadInfo = NULL);
 
+        virtual status_t stopOutput(audio_io_handle_t output,
+                                    AudioSystem::stream_type stream,
+                                    int session = 0);
+
         virtual bool isOffloadSupported(const audio_offload_info_t& offloadInfo);
 
         virtual void setPhoneState(int state);
+
+        // true if given state represents a device in a telephony or VoIP call
+        virtual bool isStateInCall(int state);
 protected:
         // return the strategy corresponding to a given stream type
         static routing_strategy getStrategy(AudioSystem::stream_type stream);
@@ -88,6 +97,26 @@ protected:
 
         // returns the category the device belongs to with regard to volume curve management
         static device_category getDeviceCategory(audio_devices_t device);
+
+        // returns true if give output is direct output
+        bool isDirectOutput(audio_io_handle_t output);
+
+        static const char* HDMI_SPKR_STR;
+
+        //parameter indicates of HDMI speakers disabled from the Qualcomm settings
+        bool mHdmiAudioDisabled;
+
+        //parameter indicates if HDMI plug in/out detected
+        bool mHdmiAudioEvent;
+
+
+private:
+        void handleNotificationRoutingForStream(AudioSystem::stream_type stream);
+
+        // Used for voip + voice concurrency usecase
+        int mPrevPhoneState;
+        static int mvoice_call_state;
+
 
 };
 };

@@ -214,20 +214,14 @@ static const int acdb_device_table[SND_DEVICE_MAX] = {
 #define DEEP_BUFFER_PLATFORM_DELAY (29*1000LL)
 #define LOW_LATENCY_PLATFORM_DELAY (13*1000LL)
 
-static int set_echo_reference(struct mixer *mixer, const char* ec_ref)
+static void set_echo_reference(struct audio_device *adev, bool enable)
 {
-    struct mixer_ctl *ctl;
-    const char *mixer_ctl_name = "EC_REF_RX";
+    if (enable)
+        audio_route_apply_and_update_path(adev->audio_route, "echo-reference");
+    else
+        audio_route_reset_and_update_path(adev->audio_route, "echo-reference");
 
-    ctl = mixer_get_ctl_by_name(mixer, mixer_ctl_name);
-    if (!ctl) {
-        ALOGE("%s: Could not get ctl for mixer cmd - %s",
-              __func__, mixer_ctl_name);
-        return -EINVAL;
-    }
-    ALOGV("Setting EC Reference: %s", ec_ref);
-    mixer_ctl_set_enum_by_string(ctl, ec_ref);
-    return 0;
+    ALOGV("Setting EC Reference: %d", enable);
 }
 
 void *platform_init(struct audio_device *adev)
@@ -562,6 +556,11 @@ int platform_stop_voice_call(void *platform, uint32_t vsid)
     return ret;
 }
 
+int platform_get_sample_rate(void *platform, uint32_t *rate)
+{
+    return 0;
+}
+
 int platform_set_voice_volume(void *platform, int volume)
 {
     struct platform_data *my_data = (struct platform_data *)platform;
@@ -614,6 +613,12 @@ int platform_set_mic_mute(void *platform, bool state)
     return ret;
 }
 
+int platform_set_device_mute(void *platform, bool state, char *dir)
+{
+    ALOGE("%s: Not implemented", __func__);
+    return -ENOSYS;
+}
+
 snd_device_t platform_get_output_snd_device(void *platform, audio_devices_t devices)
 {
     struct platform_data *my_data = (struct platform_data *)platform;
@@ -630,7 +635,7 @@ snd_device_t platform_get_output_snd_device(void *platform, audio_devices_t devi
 
     if(devices & AUDIO_DEVICE_OUT_PROXY) {
         ALOGD("%s: setting sink capability for Proxy", __func__);
-        audio_extn_set_afe_proxy_channel_mixer(adev);
+        audio_extn_set_afe_proxy_channel_mixer(adev, audio_extn_get_afe_proxy_channel_count());
     }
 
     if (mode == AUDIO_MODE_IN_CALL) {
@@ -709,7 +714,7 @@ snd_device_t platform_get_output_snd_device(void *platform, audio_devices_t devi
         snd_device = SND_DEVICE_OUT_HANDSET;
     } else if (devices & AUDIO_DEVICE_OUT_PROXY) {
         ALOGD("%s: setting sink capability for Proxy", __func__);
-        audio_extn_set_afe_proxy_channel_mixer(adev);
+        audio_extn_set_afe_proxy_channel_mixer(adev, audio_extn_get_afe_proxy_channel_count());
                 snd_device = SND_DEVICE_OUT_AFE_PROXY;
     } else {
         ALOGE("%s: Unknown device(s) %#x", __func__, devices);
@@ -817,9 +822,9 @@ snd_device_t platform_get_input_snd_device(void *platform, audio_devices_t out_d
                 } else if (in_device & AUDIO_DEVICE_IN_WIRED_HEADSET) {
                     snd_device = SND_DEVICE_IN_HEADSET_MIC_AEC;
                 }
-                set_echo_reference(adev->mixer, "SLIM_RX");
+                set_echo_reference(adev, true);
             } else
-                set_echo_reference(adev->mixer, "NONE");
+                set_echo_reference(adev, false);
         }
     } else if (source == AUDIO_SOURCE_FM_RX) {
         if (in_device & AUDIO_DEVICE_IN_FM_RX) {
@@ -1008,7 +1013,43 @@ int platform_update_usecase_from_source(int source, int usecase)
     return usecase;
 }
 
-bool platform_listen_update_status(snd_device_t snd_device)
+bool platform_listen_device_needs_event(snd_device_t snd_device)
 {
-     return false;
+    return false;
+}
+
+bool platform_listen_usecase_needs_event(audio_usecase_t uc_id)
+{
+    return false;
+}
+
+bool platform_check_24_bit_support() {
+    return false;
+}
+
+bool platform_check_and_set_codec_backend_cfg(struct audio_device* adev, struct audio_usecase *usecase) {
+    return false;
+}
+
+int platform_get_usecase_index(const char * usecase __unused)
+{
+    return -ENOSYS;
+}
+
+int platform_set_usecase_pcm_id(audio_usecase_t usecase __unused, int32_t type __unused,
+                                int32_t pcm_id __unused)
+{
+    return -ENOSYS;
+}
+
+int platform_set_snd_device_backend(snd_device_t snd_device __unused,
+                                    const char * backend __unused)
+{
+    return -ENOSYS;
+}
+
+int platform_set_snd_device_name(snd_device_t snd_device __unused,
+                                 const char * name __unused)
+{
+    return -ENOSYS;
 }

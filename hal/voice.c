@@ -66,7 +66,14 @@ int stop_call(struct audio_device *adev, audio_usecase_t usecase_id)
     ALOGD("%s: enter usecase:%s", __func__, use_case_table[usecase_id]);
 
     session = (struct voice_session *)voice_get_session_from_use_case(adev, usecase_id);
+    if (!session) {
+        ALOGE("stop_call: couldn't find voice session");
+        return -EINVAL;
+    }
+
     session->state.current = CALL_INACTIVE;
+    if (adev->mode == AUDIO_MODE_NORMAL)
+        adev->voice.is_in_call = false;
 
     ret = platform_stop_voice_call(adev->platform, session->vsid);
 
@@ -88,11 +95,11 @@ int stop_call(struct audio_device *adev, audio_usecase_t usecase_id)
     }
 
     /* 2. Get and set stream specific mixer controls */
-    disable_audio_route(adev, uc_info, true);
+    disable_audio_route(adev, uc_info);
 
     /* 3. Disable the rx and tx devices */
-    disable_snd_device(adev, uc_info->out_snd_device, false);
-    disable_snd_device(adev, uc_info->in_snd_device, true);
+    disable_snd_device(adev, uc_info->out_snd_device);
+    disable_snd_device(adev, uc_info->in_snd_device);
 
     list_remove(&uc_info->list);
     free(uc_info);
@@ -106,13 +113,24 @@ int start_call(struct audio_device *adev, audio_usecase_t usecase_id)
     int i, ret = 0;
     struct audio_usecase *uc_info;
     int pcm_dev_rx_id, pcm_dev_tx_id;
+    uint32_t sample_rate = 8000;
     struct voice_session *session = NULL;
     struct pcm_config voice_config = pcm_config_voice_call;
 
     ALOGD("%s: enter usecase:%s", __func__, use_case_table[usecase_id]);
 
     session = (struct voice_session *)voice_get_session_from_use_case(adev, usecase_id);
+    if (!session) {
+        ALOGE("start_call: couldn't find voice session");
+        return -EINVAL;
+    }
+
     uc_info = (struct audio_usecase *)calloc(1, sizeof(struct audio_usecase));
+    if (!uc_info) {
+        ALOGE("start_call: couldn't allocate mem for audio_usecase");
+        return -ENOMEM;
+    }
+
     uc_info->id = usecase_id;
     uc_info->type = VOICE_CALL;
     uc_info->stream.out = adev->primary_output;
@@ -133,6 +151,13 @@ int start_call(struct audio_device *adev, audio_usecase_t usecase_id)
         ret = -EIO;
         goto error_start_voice;
     }
+    ret = platform_get_sample_rate(adev->platform, &sample_rate);
+    if (ret < 0) {
+        ALOGE("platform_get_sample_rate error %d\n", ret);
+    } else {
+        voice_config.rate = sample_rate;
+    }
+    ALOGD("voice_config.rate %d\n", voice_config.rate);
 
     ALOGV("%s: Opening PCM playback device card_id(%d) device_id(%d)",
           __func__, adev->snd_card, pcm_dev_rx_id);
@@ -187,6 +212,19 @@ bool voice_is_in_call(struct audio_device *adev)
     }
 
     return in_call;
+}
+
+bool voice_is_in_call_rec_stream(struct stream_in *in)
+{
+    bool in_call_rec = false;
+    int ret = 0;
+
+    ret = voice_extn_is_in_call_rec_stream(in, &in_call_rec);
+    if (ret == -ENOSYS) {
+        in_call_rec = false;
+    }
+
+    return in_call_rec;
 }
 
 #ifdef MULTI_VOICE_SESSION_ENABLED
@@ -401,8 +439,7 @@ int voice_set_parameters(struct audio_device *adev, struct str_parms *parms)
             adev->voice.tty_mode = tty_mode;
             adev->acdb_settings = (adev->acdb_settings & TTY_MODE_CLEAR) | tty_mode;
             if (voice_is_in_call(adev))
-                //todo: what about voice2, volte and qchat usecases?
-                select_devices(adev, USECASE_VOICE_CALL);
+               voice_update_devices_for_all_voice_usecases(adev);
         }
     }
 
@@ -442,6 +479,21 @@ void voice_init(struct audio_device *adev)
     }
 
     voice_extn_init(adev);
+}
+
+void voice_update_devices_for_all_voice_usecases(struct audio_device *adev)
+{
+    struct listnode *node;
+    struct audio_usecase *usecase;
+
+    list_for_each(node, &adev->usecase_list) {
+        usecase = node_to_item(node, struct audio_usecase, list);
+        if (usecase->type == VOICE_CALL) {
+            ALOGV("%s: updating device for usecase:%s", __func__,
+                  use_case_table[usecase->id]);
+            select_devices(adev, usecase->id);
+        }
+    }
 }
 
 
